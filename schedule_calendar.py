@@ -7,7 +7,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 # --- 基本設定 ---
-st.set_page_config(page_title="猫カフェ・カレンダーメーカー", layout="wide")
+st.set_page_config(page_title="FUJIHARACOFFEEカレンダー", layout="wide")
 APP_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
 DATA_FILE = os.path.join(APP_DIR, "schedule_data.xlsx")
 CONFIG_FILE = os.path.join(APP_DIR, "app_config.xlsx")
@@ -165,7 +165,7 @@ if not df.empty:
             c[0].write(f"{row['日付']} {'🐾' if row['スタンプ'] else row['タイトル']}")
 
 # メイン表示
-st.title("猫カフェ カレンダーメーカー")
+st.title("FUJIHARACOFFEE カレンダーメーカー")
 c1, c2 = st.columns(2)
 y_v, m_v = c1.number_input("年", 2024, 2030, 2026), c2.selectbox("月", range(1, 13), index=date.today().month-1)
 
