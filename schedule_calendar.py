@@ -11,13 +11,12 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 # ================================
 # 基本設定 & パス
 # ================================
-st.set_page_config(page_title="FUJIHARACOFFEEカレンダー", layout="wide")
+st.set_page_config(page_title="猫カフェ・カレンダーメーカー", layout="wide")
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
 DATA_FILE = os.path.join(APP_DIR, "schedule_data.xlsx")
 CONFIG_FILE = os.path.join(APP_DIR, "app_config.xlsx")
 
-# ファイル名はご自身の環境に合わせて適宜確認してください
 BG_IMAGE_FILE = os.path.join(APP_DIR, "ビアンコネーロ@4x-100.jpg")
 STAMP_IMAGE_FILE = os.path.join(APP_DIR, "image_0d385a.png")
 FOOTER_PAW_FILE = os.path.join(APP_DIR, "image_0d385a.png")
@@ -29,11 +28,16 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             df = pd.read_excel(DATA_FILE)
-            for col in ["id", "日付", "時間", "タイトル", "スタンプ"]:
-                if col not in df.columns: df[col] = "" if col != "スタンプ" else False
+            # 個別調整用の列がなければ自動追加
+            for col in ["id", "日付", "時間", "タイトル", "スタンプ", "サイズ", "位置X", "位置Y"]:
+                if col not in df.columns:
+                    if col == "サイズ": df[col] = 100
+                    elif "位置" in col: df[col] = 50
+                    elif col == "スタンプ": df[col] = False
+                    else: df[col] = ""
             return df
         except: pass
-    return pd.DataFrame(columns=["id", "日付", "時間", "タイトル", "スタンプ"])
+    return pd.DataFrame(columns=["id", "日付", "時間", "タイトル", "スタンプ", "サイズ", "位置X", "位置Y"])
 
 def load_config():
     default_conf = {
@@ -56,7 +60,6 @@ def save_config(config_dict): pd.DataFrame([config_dict]).to_excel(CONFIG_FILE, 
 
 @st.cache_data
 def get_font(size):
-    # フォントファイルがない場合はデフォルトを使用
     font_path = os.path.join(APP_DIR, "NotoSansCJKjp-Regular.otf")
     if os.path.exists(font_path): return ImageFont.truetype(font_path, size)
     return ImageFont.load_default()
@@ -83,11 +86,6 @@ def create_calendar_image(year, month, df, config):
     draw.text((320, 110), f"{year} {calendar.month_name[month]}", font=get_font(55), fill=main_color)
 
     start_y, cell_w, cell_h = 300, width // 7, 160
-    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-    for i, d_label in enumerate(days):
-        lbl_c = (255, 99, 71, 255) if i == 6 else (123, 104, 238, 255) if i == 5 else (176, 164, 148, 255)
-        draw.text((i * cell_w + 45, start_y - 60), d_label, font=get_font(30), fill=lbl_c)
-
     cal = calendar.Calendar(firstweekday=0)
     last_y = 300
     for r, week in enumerate(cal.monthdatescalendar(year, month)):
@@ -101,12 +99,22 @@ def create_calendar_image(year, month, df, config):
             day_str = d.strftime("%Y-%m-%d")
             day_items = df[df["日付"].astype(str) == day_str] if not df.empty else pd.DataFrame()
 
+            # --- 猫足の描画（個別設定対応） ---
             if not day_items.empty and any(day_items["スタンプ"] == True) and os.path.exists(STAMP_IMAGE_FILE):
                 try:
-                    s_size = config.get("stamp_size", 100)
+                    row = day_items[day_items["スタンプ"] == True].iloc[0]
+                    # 個別値があれば使用、なければ全体設定
+                    s_size = row.get('サイズ', config.get("stamp_size", 100))
+                    pos_x = row.get('位置X', 50)
+                    pos_y = row.get('位置Y', 50)
+
                     st_img = Image.open(STAMP_IMAGE_FILE).convert("RGBA")
                     st_img = st_img.resize((int(s_size), int(s_size * 0.85)), Image.LANCZOS)
-                    img.paste(st_img, (int(x + cell_w//2 - s_size//2), int(y + cell_h//2 - (s_size*0.85)//2)), st_img)
+                    
+                    # 座標計算（0-100の比率で配置）
+                    px = int(x + (cell_w * (pos_x / 100)) - (s_size // 2))
+                    py = int(y + (cell_h * (pos_y / 100)) - (int(s_size * 0.85) // 2))
+                    img.paste(st_img, (px, py), st_img)
                 except: pass
 
             curr_ty = y + 65
@@ -148,26 +156,31 @@ config = load_config()
 st.sidebar.title("🐾 設定・追加")
 
 with st.sidebar.expander("🎨 見た目の調整"):
-    config["stamp_size"] = st.slider("猫足の大きさ", 50, 150, int(config["stamp_size"]))
+    config["stamp_size"] = st.slider("猫足の大きさ（全体）", 50, 150, int(config["stamp_size"]))
     config["title_font_size"] = st.slider("タイトル文字サイズ", 15, 40, int(config["title_font_size"]))
     config["footer_font_size"] = st.slider("脚注文字サイズ", 20, 100, int(config["footer_font_size"]))
     if st.button("設定を保存"): save_config(config); st.success("保存完了")
 
 with st.sidebar.expander("📅 予定の追加", expanded=True):
     target_date = st.date_input("日付", date.today())
-    
-    # 【修正箇所】value=False にして、最初はチェックが入っていない状態にします
     is_open = st.checkbox("営業日（猫足を表示）", value=False)
+    
+    # --- 猫足の個別調整メニュー ---
+    if is_open:
+        st.info("🐾 この日の猫足を調整できます")
+        indiv_s = st.slider("サイズ", 30, 250, 100, key="s")
+        indiv_x = st.slider("位置 (左 ⇔ 右)", 0, 100, 50, key="x")
+        indiv_y = st.slider("位置 (上 ⇔ 下)", 0, 100, 50, key="y")
+    else:
+        indiv_s, indiv_x, indiv_y = 100, 50, 50
     
     time_mode = st.radio("入力方法", ["プルダウンで選択", "自由入力", "指定なし"], horizontal=True)
     
     if time_mode == "プルダウンで選択":
-        h_list = [f"{i:02d}:00" for i in range(8, 23)] + [f"{i:02d}:30" for i in range(8, 23)]
-        h_list.sort()
-        
+        h_list = sorted([f"{i:02d}:00" for i in range(8, 23)] + [f"{i:02d}:30" for i in range(8, 23)])
         col_start, col_end = st.columns(2)
-        start_t = col_start.selectbox("開始時間", h_list, index=h_list.index("13:00"))
-        end_t = col_end.selectbox("終了時間", h_list, index=h_list.index("17:00"))
+        start_t = col_start.selectbox("開始", h_list, index=h_list.index("13:00"))
+        end_t = col_end.selectbox("終了", h_list, index=h_list.index("17:00"))
         t_input = f"{start_t}-{end_t}"
     elif time_mode == "自由入力":
         t_input = st.text_input("時間を入力 (例: 13:00-17:00)")
@@ -182,7 +195,10 @@ with st.sidebar.expander("📅 予定の追加", expanded=True):
             "日付": target_date.strftime("%Y-%m-%d"), 
             "時間": t_input, 
             "タイトル": title_input, 
-            "スタンプ": is_open
+            "スタンプ": is_open,
+            "サイズ": indiv_s,
+            "位置X": indiv_x,
+            "位置Y": indiv_y
         }])
         df = pd.concat([df, new_row], ignore_index=True)
         save_data(df); st.rerun()
@@ -196,7 +212,7 @@ if not df.empty:
                 df = df[df["id"] != row["id"]]; save_data(df); st.rerun()
             c[0].write(f"{row['日付']} {row['タイトル']}")
 
-st.title("FUJIHARACOFFEEカレンダー")
+st.title("猫カフェ カレンダーメーカー")
 c1, c2 = st.columns(2)
 y_v = c1.number_input("年", 2024, 2030, 2026)
 m_v = c2.selectbox("月", range(1, 13), index=date.today().month - 1)
