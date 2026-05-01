@@ -1,3 +1,15 @@
+import subprocess
+import sys
+
+# 強制的に openpyxl をインストールする命令
+try:
+    import openpyxl
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+    import openpyxl
+
+import streamlit as st
+# ...（以下、元のコードが続く）
 import streamlit as st
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
